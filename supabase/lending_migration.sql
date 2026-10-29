@@ -1,0 +1,44 @@
+-- Lending / Borrowing tracker with interest and reminders
+CREATE TABLE IF NOT EXISTS lending (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_phone TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('given', 'taken')),
+  person_name TEXT NOT NULL,
+  amount NUMERIC NOT NULL,
+  reason TEXT,
+  has_interest BOOLEAN DEFAULT FALSE,
+  interest_rate NUMERIC DEFAULT 0,
+  interest_type TEXT DEFAULT 'monthly' CHECK (interest_type IN ('monthly', 'yearly')),
+  due_date DATE,
+  reminder_enabled BOOLEAN DEFAULT TRUE,
+  reminder_frequency TEXT DEFAULT 'weekly' CHECK (reminder_frequency IN ('daily', 'weekly', 'monthly')),
+  last_reminded_at TIMESTAMPTZ,
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'settled', 'cancelled')),
+  settled_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+
+-- Index for fast lookup
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='lending' AND column_name='user_phone') THEN
+    CREATE INDEX IF NOT EXISTS idx_lending_user ON lending(user_phone);
+  ELSE
+    RAISE NOTICE 'Skipping idx_lending_user — lending.user_phone not found (table may pre-exist with a different schema)';
+  END IF;
+END $$;
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='lending' AND column_name='user_phone') THEN
+    CREATE INDEX IF NOT EXISTS idx_lending_status ON lending(user_phone, status);
+  ELSE
+    RAISE NOTICE 'Skipping idx_lending_status — lending.user_phone not found (table may pre-exist with a different schema)';
+  END IF;
+END $$;
+
+-- RLS — the app has no Supabase Auth session (custom phone+password auth
+-- against the anon key, same as every other table here), so a policy keyed
+-- off current_setting('app.user_phone') would always evaluate to NULL and
+-- block every request from the app itself. Matches the permissive pattern
+-- used everywhere else in this schema.
+ALTER TABLE lending ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS lending_user_policy ON lending;
+CREATE POLICY lending_user_policy ON lending FOR ALL USING (true) WITH CHECK (true);
